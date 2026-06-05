@@ -120,19 +120,14 @@ const isReached = (lead) => Object.values(lead.setter_calls || {}).includes("pic
 
 export default function SetterHub() {
   const [leads, setLeads] = useState([]);
-  const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const now = Date.now();
 
   async function load() {
     setLoading(true);
-    const [a, b] = await Promise.all([
-      supabase.from("b2b_leads").select("*"),
-      supabase.from("clients").select("id,name,setter_commission_amount,setter_commission_paid"),
-    ]);
-    setLeads(a.data || []);
-    setClients(b.data || []);
+    const { data } = await supabase.from("b2b_leads").select("*");
+    setLeads(data || []);
     setLoading(false);
   }
   useEffect(() => { load(); }, []);
@@ -151,8 +146,6 @@ export default function SetterHub() {
   }
 
   const stats = useMemo(() => {
-    const earned = clients.reduce((s, c) => s + Number(c.setter_commission_amount || 0), 0);
-    const paid = clients.filter((c) => c.setter_commission_paid).reduce((s, c) => s + Number(c.setter_commission_amount || 0), 0);
     let calls = 0, pickups = 0, reached = 0;
     for (const l of leads) {
       const c = l.setter_calls || {};
@@ -161,8 +154,8 @@ export default function SetterHub() {
       pickups += vals.filter((v) => v === "picked_up").length;
       if (vals.includes("picked_up")) reached += 1;
     }
-    return { earned, paid, outstanding: earned - paid, clients: clients.length, calls, pickups, reached };
-  }, [leads, clients]);
+    return { calls, pickups, reached };
+  }, [leads]);
 
   const queue = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -203,11 +196,9 @@ export default function SetterHub() {
       {loading ? <p style={{ color: C.dim, marginTop: 20 }}>Loading…</p> : (
         <>
           <div style={{ marginTop: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12 }}>
-            <Stat label="Earned" value={usd(stats.earned)} tone={C.green} sub={`${stats.clients} clients × commission`} />
-            <Stat label="Paid out" value={usd(stats.paid)} tone={C.accent} />
-            <Stat label="Outstanding" value={usd(stats.outstanding)} tone={C.amber} />
             <Stat label="Calls made" value={stats.calls} />
             <Stat label="Pickups" value={stats.pickups} tone={C.green} />
+            <Stat label="Reached" value={stats.reached} tone={C.accent} />
           </div>
 
           <div style={{ marginTop: 24, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))", gap: 16, alignItems: "start" }}>
