@@ -4,6 +4,7 @@
 
 import { useState } from "react";
 import Script from "./Script";
+import SalesTraining from "./SalesTraining";
 
 const C = {
   bg: "#0f1115", panel: "#171a21", panel2: "#1d212b", border: "#262b36",
@@ -12,6 +13,7 @@ const C = {
 
 const MATERIALS = [
   { id: "b2b-script", title: "B2B Setting Script", desc: "The full call script — intro to close" },
+  { id: "sales-training", title: "Sales Training", desc: "Full sales course — foundations to closing" },
 ];
 
 export default function Training() {
@@ -22,6 +24,14 @@ export default function Training() {
       <div>
         <button onClick={() => setOpen(null)} style={backBtn}>← Training Material</button>
         <Script />
+      </div>
+    );
+  }
+  if (open === "sales-training") {
+    return (
+      <div>
+        <button onClick={() => setOpen(null)} style={backBtn}>← Training Material</button>
+        <SalesTraining />
       </div>
     );
   }
