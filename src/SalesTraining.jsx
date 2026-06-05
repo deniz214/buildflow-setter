@@ -25,24 +25,24 @@ const MODULES = [
   {
     title: "The Discovery Call",
     lessons: [
-      { id: "2.1", title: "Discovery Call Framework (Full Structure)", type: "soon" },
-      { id: "2.2", title: "Opening The Call (First 5 Minutes)", type: "soon" },
-      { id: "2.3", title: "Qualifying & Diagnosing (The Questions)", type: "soon" },
-      { id: "2.4", title: "The Pitch Structure", type: "soon" },
-      { id: "2.5", title: "Pricing & Presenting The Offer", type: "soon" },
+      { id: "2.1", title: "Discovery Call Framework (Full Structure)", type: "pdf", src: "/sales-training/04-discovery-call-framework-full-structure.pdf" },
+      { id: "2.2", title: "Opening The Call (First 5 Minutes)", type: "pdf", src: "/sales-training/05-opening-the-call-first-5-minutes.pdf" },
+      { id: "2.3", title: "Qualifying & Diagnosing (The Questions)", type: "pdf", src: "/sales-training/06-qualifying-diagnosing-the-question-stack.pdf" },
+      { id: "2.4", title: "The Pitch Structure", type: "pdf", src: "/sales-training/07-the-pitch-structure.pdf" },
+      { id: "2.5", title: "Pricing & Presenting The Offer", type: "pdf", src: "/sales-training/08-pricing-presenting-the-offer.pdf" },
     ],
   },
   {
     title: "Closing",
     lessons: [
-      { id: "3.1", title: "Closing Techniques (Soft, Assumptive, etc.)", type: "soon" },
-      { id: "3.2", title: "Top 10 Objections & Exact Responses", type: "soon" },
+      { id: "3.1", title: "Closing Techniques (Soft, Assumptive, Direct)", type: "pdf", src: "/sales-training/09-closing-techniques-soft-assumptive-direct.pdf" },
+      { id: "3.2", title: "Top 10 Objections & Exact Responses", type: "pdf", src: "/sales-training/10-top-10-objections-exact-responses.pdf" },
     ],
   },
   {
     title: "Follow-Up & Recovery",
     lessons: [
-      { id: "4.1", title: "Post-Call Follow-Up Sequences", type: "soon" },
+      { id: "4.1", title: "Post-Call Follow-Up Sequences", type: "pdf", src: "/sales-training/12-post-call-follow-up-sequences.pdf" },
       { id: "4.2", title: "Re-Engaging Cold Prospects", type: "pdf", src: "/sales-training/re-engaging-cold-prospects.pdf" },
     ],
   },
