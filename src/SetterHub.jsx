@@ -7,6 +7,8 @@
 //   • Call queue: "Call now" (due/overdue) and "Up next" (upcoming), one row per
 //     lead showing exactly who to call and when, with tick buttons
 //   • Leads:  every active lead with a stage dropdown (auto-syncs) + call ticks
+//             + an appointment-time editor (writes appt_at in the lead's local
+//             time, so it shows on the main tracker and arms Slack reminders)
 //
 // Call schedule rules mirror the Slack scheduler:
 //   Opt-In ............. call now + 9/1/4 local for 3 days
@@ -72,6 +74,30 @@ function relTime(due, now) {
   const diff = due - now, abs = Math.abs(diff), h = Math.round(abs / 3600e3), m = Math.round(abs / 60e3);
   const t = abs < 3600e3 ? `${m}m` : abs < 36 * 3600e3 ? `${h}h` : `${Math.round(h / 24)}d`;
   return diff <= 0 ? `${t} overdue` : `in ${t}`;
+}
+
+/* ---------- appointment-time helpers ----------
+   appt_at is stored as a naive wall-clock string "YYYY-MM-DDTHH:MM" in the
+   LEAD's local timezone — the exact format the main tracker writes by hand and
+   that ghl-appt-sync.js produces. We read/write that same string here so a
+   setter-set time is indistinguishable from a GHL-synced one. */
+function apptToInput(lead) {
+  // -> "YYYY-MM-DDTHH:MM" for <input type="datetime-local">, or "" if unset
+  if (!lead.appt_at) return "";
+  const m = String(lead.appt_at).match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}` : "";
+}
+function inputToAppt(val) {
+  // <input datetime-local> gives "YYYY-MM-DDTHH:MM" (already lead-local wall time)
+  const m = String(val || "").match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}` : null;
+}
+function fmtApptLocal(lead) {
+  const m = String(lead.appt_at || "").match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  if (!m) return "";
+  const dt = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  const s = dt.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return lead.timezone ? `${s} ${lead.timezone}` : s;
 }
 
 const DAY_TIMES = [["0900", 9, "9 AM"], ["1300", 13, "1 PM"], ["1600", 16, "4 PM"]];
@@ -144,6 +170,13 @@ export default function SetterHub() {
     await supabase.from("b2b_leads").update({ stage }).eq("id", lead.id);
     load();
   }
+  // Writes appt_at in the lead's local wall-clock format. Stage is left alone
+  // (the setter sets it separately via the stage dropdown). Passing "" clears it.
+  async function setAppt(lead, inputVal) {
+    const appt_at = inputVal ? inputToAppt(inputVal) : null;
+    await supabase.from("b2b_leads").update({ appt_at }).eq("id", lead.id);
+    load();
+  }
 
   const stats = useMemo(() => {
     let calls = 0, pickups = 0, reached = 0;
@@ -210,7 +243,7 @@ export default function SetterHub() {
             <h2 style={{ fontSize: 16, fontWeight: 600, margin: "0 0 12px" }}>All leads</h2>
             <div style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: 12 }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                <thead><tr>{["Name", "Phone", "Stage", "Next call", ""].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                <thead><tr>{["Name", "Phone", "Stage", "Appt time", "Next call", ""].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
                 <tbody>
                   {activeLeads.map((l) => {
                     const slot = nextOpenSlot(l);
@@ -223,6 +256,9 @@ export default function SetterHub() {
                           <select value={l.stage || ""} onChange={(e) => setStage(l, e.target.value)} style={sel}>
                             {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
                           </select>
+                        </td>
+                        <td style={td}>
+                          <Appt lead={l} onSave={setAppt} />
                         </td>
                         <td style={{ ...td, color: C.dim }}>
                           {reached ? <span style={{ color: C.green }}>✓ Reached</span> : slot ? <span>{slot.label} · <span style={{ color: C.faint }}>{relTime(slot.due.getTime(), now)}</span></span> : "—"}
@@ -238,12 +274,65 @@ export default function SetterHub() {
                       </tr>
                     );
                   })}
-                  {activeLeads.length === 0 && <tr><td style={{ ...td, color: C.faint }} colSpan={5}>No leads.</td></tr>}
+                  {activeLeads.length === 0 && <tr><td style={{ ...td, color: C.faint }} colSpan={6}>No leads.</td></tr>}
                 </tbody>
               </table>
             </div>
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+/* Inline appointment editor. Shows the saved time; click Edit to change it.
+   Entered as the lead's LOCAL time (matches the tracker + GHL sync). Saving
+   writes appt_at, which the main tracker reads and the call queue / Slack
+   reminders re-arm off of automatically. Stage is untouched. */
+function Appt({ lead, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(apptToInput(lead));
+
+  // keep local field in sync if the lead reloads with a new time
+  useEffect(() => { setVal(apptToInput(lead)); }, [lead.appt_at]);
+
+  if (!editing) {
+    const has = !!lead.appt_at;
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}>
+        <span style={{ color: has ? C.text : C.faint, fontSize: 12.5 }}>
+          {has ? fmtApptLocal(lead) : "Not set"}
+        </span>
+        <button style={apptLink} onClick={() => { setVal(apptToInput(lead)); setEditing(true); }}>
+          {has ? "Edit" : "Set"}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+      <input
+        type="datetime-local"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        style={apptInput}
+      />
+      <button
+        style={tickBtn(false, C.green)}
+        title="Save"
+        onClick={async () => { await onSave(lead, val); setEditing(false); }}
+      >✓</button>
+      <button
+        style={tickBtn(false, C.faint)}
+        title="Cancel"
+        onClick={() => { setVal(apptToInput(lead)); setEditing(false); }}
+      >✕</button>
+      {lead.appt_at && (
+        <button
+          style={apptClear}
+          title="Clear appointment time"
+          onClick={async () => { await onSave(lead, ""); setEditing(false); }}
+        >Clear</button>
       )}
     </div>
   );
@@ -294,6 +383,9 @@ const sel = { padding: "6px 8px", borderRadius: 7, border: `1px solid ${C.border
 const btnSecondary = { padding: "9px 14px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.panel2, color: C.text, fontSize: 14, fontFamily: "inherit", cursor: "pointer", whiteSpace: "nowrap" };
 const th = { textAlign: "left", padding: "10px 12px", color: C.dim, fontSize: 11, fontWeight: 600, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" };
 const td = { padding: "9px 12px", borderBottom: `1px solid ${C.border}`, color: C.text };
+const apptLink = { padding: "3px 8px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.panel2, color: C.accent, fontSize: 11.5, fontFamily: "inherit", cursor: "pointer" };
+const apptInput = { padding: "5px 7px", borderRadius: 7, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, fontFamily: "inherit" };
+const apptClear = { padding: "3px 8px", borderRadius: 6, border: `1px solid ${C.red}66`, background: "transparent", color: C.red, fontSize: 11, fontFamily: "inherit", cursor: "pointer" };
 function tickBtn(active, color) {
   return { width: 30, height: 26, borderRadius: 6, fontSize: 13, fontWeight: 700, fontFamily: "inherit", cursor: "pointer", display: "grid", placeItems: "center", background: active ? color : "transparent", color: active ? "#0f1115" : color, border: `1px solid ${color}${active ? "" : "66"}` };
 }
