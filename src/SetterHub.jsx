@@ -32,6 +32,12 @@ const STAGES = [
 ];
 const CALLING_STAGES = ["Opt-In", "Booked (Unconfirmed)", "Booked (Confirmed)"];
 const TZ_IANA = { ET: "America/New_York", CT: "America/Chicago", MT: "America/Denver", PT: "America/Los_Angeles" };
+const TZ_META = {
+  ET: { label: "ET", full: "Eastern",  color: "#5b8def" },
+  CT: { label: "CT", full: "Central",  color: "#3ecf8e" },
+  MT: { label: "MT", full: "Mountain", color: "#e9b949" },
+  PT: { label: "PT", full: "Pacific",  color: "#a78bfa" },
+};
 
 const usd = (n) => "$" + Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
 
@@ -250,7 +256,7 @@ export default function SetterHub() {
                     const reached = isReached(l);
                     return (
                       <tr key={l.id}>
-                        <td style={td}>{l.full_name || "—"}</td>
+                        <td style={td}><span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>{l.full_name || "—"}<TzBadge tz={l.timezone} /></span></td>
                         <td style={{ ...td, fontFamily: "monospace", fontSize: 12 }}>{l.phone || "—"}</td>
                         <td style={td}>
                           <select value={l.stage || ""} onChange={(e) => setStage(l, e.target.value)} style={sel}>
@@ -338,6 +344,18 @@ function Appt({ lead, onSave }) {
   );
 }
 
+function TzBadge({ tz }) {
+  const meta = TZ_META[tz];
+  if (!meta) return tz ? <span style={{ fontSize: 10.5, color: C.faint }}>{tz}</span> : null;
+  return (
+    <span title={meta.full + " Time"} style={{
+      display: "inline-block", padding: "1px 6px", borderRadius: 5,
+      fontSize: 10.5, fontWeight: 700, lineHeight: 1.5,
+      color: meta.color, background: meta.color + "1f", border: `1px solid ${meta.color}55`,
+    }}>{meta.label}</span>
+  );
+}
+
 function Stat({ label, value, tone, sub }) {
   return (
     <div style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14 }}>
@@ -362,7 +380,7 @@ function QueueCol({ title, tone, rows, now, onTick, empty }) {
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 13.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{lead.full_name || "—"}</div>
                 {lead.phone && <div style={{ fontFamily: "monospace", fontSize: 12, marginTop: 2 }}>{lead.phone}</div>}
-                <div style={{ fontSize: 11, color: C.dim, marginTop: 3 }}>{lead.stage}</div>
+                <div style={{ fontSize: 11, color: C.dim, marginTop: 3, display: "flex", alignItems: "center", gap: 6 }}><span>{lead.stage}</span><TzBadge tz={lead.timezone} /></div>
               </div>
               <div style={{ display: "flex", gap: 4, flexShrink: 0, alignItems: "flex-start" }}>
                 <button onClick={() => onTick(lead, slot.key, "picked_up")} style={tickBtn(false, C.green)} title="Picked up">✓</button>
