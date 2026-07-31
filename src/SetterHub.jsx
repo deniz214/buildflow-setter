@@ -43,6 +43,16 @@ const TZ_META = {
   PT: { label: "PT", full: "Pacific",  color: "#a78bfa" },
 };
 
+// Paste your B2B GHL sub-account location ID here as a fallback for leads
+// whose row has no ghl_location_id (older rows). Leave "" to hide the link.
+const GHL_LOCATION_FALLBACK = "";
+
+const ghlLoc = (l) => l.ghl_location_id || GHL_LOCATION_FALLBACK;
+// Opens the lead's conversation in GHL — where the setter calls / texts them.
+const ghlChat = (l) => (ghlLoc(l) && l.ghl_contact_id)
+  ? `https://app.gohighlevel.com/v2/location/${ghlLoc(l)}/conversations/conversations/${l.ghl_contact_id}` : null;
+const telLink = (p) => { const d = String(p || "").replace(/[^\d+]/g, ""); return d ? `tel:${d}` : null; };
+
 /* ---------- date helpers (DST-correct) ---------- */
 const pad = (n) => String(n).padStart(2, "0");
 function ord(n) { const s = ["th", "st", "nd", "rd"], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
@@ -177,6 +187,8 @@ export default function SetterHub() {
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [section, setSection] = useState("optins");
+  const [showAdd, setShowAdd] = useState(false);
+  const [draft, setDraft] = useState({ full_name: "", phone: "", email: "", company: "", timezone: "ET", stage: "Opt-In", appt_at: "" });
   const [, setTick] = useState(0);
   const now = Date.now();
 
@@ -199,6 +211,34 @@ export default function SetterHub() {
   }
   async function setStage(lead, stage) {
     await supabase.from("b2b_leads").update({ stage }).eq("id", lead.id);
+    load();
+  }
+  async function addLead() {
+    if (!draft.phone && !draft.email) { window.alert("Need at least a phone or an email."); return; }
+    const row = {
+      full_name: draft.full_name || null,
+      phone: draft.phone || null,
+      email: draft.email || null,
+      company: draft.company || null,
+      timezone: draft.timezone || null,
+      stage: draft.stage,
+      opt_in_at: new Date().toISOString(),
+      setter_calls: {}, setter_sent: {},
+    };
+    if (draft.stage === "Booked (Unconfirmed)") {
+      row.booked_at = new Date().toISOString();
+      row.appt_at = draft.appt_at ? inputToAppt(draft.appt_at) : null;
+    }
+    const { error } = await supabase.from("b2b_leads").insert(row);
+    if (error) { window.alert("Could not add lead: " + error.message); return; }
+    setDraft({ full_name: "", phone: "", email: "", company: "", timezone: "ET", stage: "Opt-In", appt_at: "" });
+    setShowAdd(false);
+    load();
+  }
+  async function removeLead(lead) {
+    if (!window.confirm(`Delete ${lead.full_name || "this lead"} permanently? This cannot be undone.`)) return;
+    const { error } = await supabase.from("b2b_leads").delete().eq("id", lead.id);
+    if (error) { window.alert("Could not delete: " + error.message); return; }
     load();
   }
   // Writes appt_at in the lead's local wall-clock format; "" clears it.
@@ -263,9 +303,39 @@ export default function SetterHub() {
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name…" style={{ ...inp, width: 200, marginTop: 0 }} />
+          <button style={{ ...btnSecondary, background: showAdd ? C.accent : C.panel2, color: showAdd ? "#fff" : C.text }} onClick={() => setShowAdd((v) => !v)}>+ Add lead</button>
           <button style={btnSecondary} onClick={load}>Refresh</button>
         </div>
       </div>
+
+      {showAdd && (
+        <div style={{ marginTop: 16, background: C.panel, border: `1px solid ${C.border}`, borderRadius: 12, padding: 15, maxWidth: 720 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Add a lead manually</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <input placeholder="Full name" value={draft.full_name} onChange={(e) => setDraft({ ...draft, full_name: e.target.value })} style={{ ...inp, marginTop: 0 }} />
+            <input placeholder="Company" value={draft.company} onChange={(e) => setDraft({ ...draft, company: e.target.value })} style={{ ...inp, marginTop: 0 }} />
+            <input placeholder="Phone (US)" value={draft.phone} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} style={{ ...inp, marginTop: 0 }} />
+            <input placeholder="Email" value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} style={{ ...inp, marginTop: 0 }} />
+            <select value={draft.timezone} onChange={(e) => setDraft({ ...draft, timezone: e.target.value })} style={{ ...inp, marginTop: 0 }}>
+              {["ET", "CT", "MT", "PT"].map((t) => <option key={t} value={t}>{t} — {TZ_META[t].full}</option>)}
+            </select>
+            <select value={draft.stage} onChange={(e) => setDraft({ ...draft, stage: e.target.value })} style={{ ...inp, marginTop: 0 }}>
+              {["Opt-In", "Booked (Unconfirmed)"].map((st) => <option key={st} value={st}>{st}</option>)}
+            </select>
+            {draft.stage === "Booked (Unconfirmed)" && (
+              <input type="datetime-local" value={draft.appt_at} onChange={(e) => setDraft({ ...draft, appt_at: e.target.value })}
+                title="Appointment time in the LEAD'S local time" style={{ ...inp, marginTop: 0, colorScheme: "dark" }} />
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button onClick={addLead} style={{ ...btnSecondary, background: C.green, color: "#0f1115", fontWeight: 700, border: "none" }}>Save lead</button>
+            <button onClick={() => setShowAdd(false)} style={btnSecondary}>Cancel</button>
+          </div>
+          <div style={{ fontSize: 11, color: C.faint, marginTop: 8 }}>
+            The timezone drives every call time and Slack reminder. A new opt-in pops in the pot immediately, then follows the 9:00 AM / 1:00 PM / 4:00 PM cadence.
+          </div>
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
         <SectionBtn on={section === "optins"} onClick={() => setSection("optins")} label={`Opt-Ins (${optPot.length})`} />
@@ -279,10 +349,10 @@ export default function SetterHub() {
           {section !== "all" && (
             <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 10, maxWidth: 680 }}>
               {section === "optins" && (optPot.length
-                ? optPot.map(({ l, s }) => <PotCard key={l.id} l={l} s={s} now={now} onTick={tick} />)
+                ? optPot.map(({ l, s }) => <PotCard key={l.id} l={l} s={s} now={now} onTick={tick} onDelete={removeLead} />)
                 : <Empty>No opt-in calls due right now. 🎉</Empty>)}
               {section === "conf" && (confPot.length
-                ? confPot.map(({ l, s }) => <PotCard key={l.id} l={l} s={s} now={now} onTick={tick} conf setStage={setStage} />)
+                ? confPot.map(({ l, s }) => <PotCard key={l.id} l={l} s={s} now={now} onTick={tick} conf setStage={setStage} onDelete={removeLead} />)
                 : <Empty>No confirmation calls due right now. 🎉</Empty>)}
               {section === "prior" && (priorPot.length
                 ? priorPot.map(({ l, m }) => <PriorCard key={l.id} l={l} m={m} setStage={setStage} />)
@@ -299,7 +369,7 @@ export default function SetterHub() {
               </div>
               <div style={{ marginTop: 24, overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: 12 }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                  <thead><tr>{["Name", "Phone", "Stage", "Appt time", "Next call", ""].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                  <thead><tr>{["Name", "Phone", "Stage", "Appt time", "Next call", "Chat", ""].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
                   <tbody>
                     {activeLeads.map((l) => {
                       const slot = nextOpenSlot(l);
@@ -318,17 +388,25 @@ export default function SetterHub() {
                             {reached ? <span style={{ color: C.green }}>✓ Reached</span> : slot ? <span>{slot.label} · <span style={{ color: C.faint }}>{relTime(slot.due.getTime(), now)}</span></span> : "—"}
                           </td>
                           <td style={td}>
-                            {slot && !reached && (
-                              <span style={{ display: "flex", gap: 4 }}>
-                                <button onClick={() => tick(l, slot.key, "picked_up")} style={tickBtn(false, C.green)} title="Picked up">✓</button>
-                                <button onClick={() => tick(l, slot.key, "no_pickup")} style={tickBtn(false, C.red)} title="No answer">✕</button>
-                              </span>
-                            )}
+                            {ghlChat(l)
+                              ? <a href={ghlChat(l)} target="_blank" rel="noreferrer" style={{ ...linkBtn, padding: "3px 8px", fontSize: 11.5 }}>💬 Chat ↗</a>
+                              : <span style={{ color: C.faint, fontSize: 11.5 }}>—</span>}
+                          </td>
+                          <td style={td}>
+                            <span style={{ display: "flex", gap: 4 }}>
+                              {slot && !reached && (
+                                <>
+                                  <button onClick={() => tick(l, slot.key, "picked_up")} style={tickBtn(false, C.green)} title="Picked up">✓</button>
+                                  <button onClick={() => tick(l, slot.key, "no_pickup")} style={tickBtn(false, C.red)} title="No answer">✕</button>
+                                </>
+                              )}
+                              <button onClick={() => removeLead(l)} style={tickBtn(false, C.red)} title="Delete lead">✕</button>
+                            </span>
                           </td>
                         </tr>
                       );
                     })}
-                    {activeLeads.length === 0 && <tr><td style={{ ...td, color: C.faint }} colSpan={6}>No leads.</td></tr>}
+                    {activeLeads.length === 0 && <tr><td style={{ ...td, color: C.faint }} colSpan={7}>No leads.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -341,7 +419,9 @@ export default function SetterHub() {
 }
 
 /* ---------- pot card: expand for detail, tick the call ---------- */
-function PotCard({ l, s, now, onTick, conf, setStage }) {
+function PotCard({ l, s, now, onTick, conf, setStage, onDelete }) {
+  const chat = ghlChat(l);
+  const tel = telLink(l.phone);
   return (
     <details style={{ background: C.panel, border: `1px solid ${s.fresh ? C.green + "88" : C.amber + "44"}`, borderRadius: 12 }}>
       <summary style={{ listStyle: "none", cursor: "pointer", padding: "12px 15px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -363,6 +443,11 @@ function PotCard({ l, s, now, onTick, conf, setStage }) {
           {conf && <><span style={{ color: C.dim }}>Appt</span><span>{fmtApptLocal(l)}</span></>}
           {l.company && <><span style={{ color: C.dim }}>Company</span><span>{l.company}</span></>}
         </div>
+        <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
+          {chat && <a href={chat} target="_blank" rel="noreferrer" style={linkBtn}>💬 Open chat in GHL ↗</a>}
+          {tel && <a href={tel} style={linkBtn}>📞 Call {l.phone}</a>}
+          {!chat && <span style={{ fontSize: 11, color: C.faint }}>no GHL contact linked</span>}
+        </div>
         <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
           <button style={btn(C.green)} onClick={() => onTick(l, s.key, "picked_up")}>✓ Called — picked up</button>
           <button style={btn(C.faint)} onClick={() => onTick(l, s.key, "no_pickup")}>☎ Called — no answer</button>
@@ -372,6 +457,7 @@ function PotCard({ l, s, now, onTick, conf, setStage }) {
               <button style={btn(C.red)} onClick={() => setStage(l, "Needs Reschedule")}>Needs reschedule</button>
             </>
           )}
+          {onDelete && <button style={{ ...btn(C.red), marginLeft: "auto" }} title="Delete lead" onClick={() => onDelete(l)}>✕ Delete</button>}
         </div>
       </div>
     </details>
@@ -379,6 +465,8 @@ function PotCard({ l, s, now, onTick, conf, setStage }) {
 }
 
 function PriorCard({ l, m, setStage }) {
+  const chat = ghlChat(l);
+  const tel = telLink(l.phone);
   return (
     <div style={{ background: C.panel, border: `1px solid ${C.red}66`, borderRadius: 12, padding: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
@@ -391,6 +479,10 @@ function PriorCard({ l, m, setStage }) {
           <div style={{ fontSize: 13, fontWeight: 700, color: m <= 0 ? C.red : C.amber }}>{m <= 0 ? "starting now" : `in ${m} min`}</div>
           <div style={{ fontSize: 11.5, color: C.dim }}>{fmtApptLocal(l)}</div>
         </div>
+      </div>
+      <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
+        {chat && <a href={chat} target="_blank" rel="noreferrer" style={linkBtn}>💬 Open chat in GHL ↗</a>}
+        {tel && <a href={tel} style={linkBtn}>📞 Call {l.phone}</a>}
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
         <button style={btn(C.accent)} onClick={() => setStage(l, "Show + No Close")}>Showed</button>
@@ -465,6 +557,7 @@ const btn = (tone) => ({
   padding: "7px 12px", borderRadius: 8, fontSize: 12.5, fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
   background: "transparent", color: tone, border: `1px solid ${tone}66`,
 });
+const linkBtn = { display: "inline-block", padding: "5px 10px", borderRadius: 7, border: `1px solid ${C.accent}55`, background: "transparent", color: C.accent, fontSize: 12, fontFamily: "inherit", textDecoration: "none", cursor: "pointer", whiteSpace: "nowrap" };
 const inp = { marginTop: 4, padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 13, fontFamily: "inherit", boxSizing: "border-box" };
 const sel = { padding: "6px 8px", borderRadius: 7, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12.5, fontFamily: "inherit" };
 const btnSecondary = { padding: "9px 14px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.panel2, color: C.text, fontSize: 14, fontFamily: "inherit", cursor: "pointer", whiteSpace: "nowrap" };
