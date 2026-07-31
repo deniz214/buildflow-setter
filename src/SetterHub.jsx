@@ -47,11 +47,15 @@ const TZ_META = {
 // whose row has no ghl_location_id (older rows). Leave "" to hide the link.
 const GHL_LOCATION_FALLBACK = "";
 
+// Booking goes through the agency-ops Netlify functions, so no GHL token
+// ever ships in this app (same pattern as the B2C dialer).
+const API_BASE = "https://buildflowtracking.netlify.app/.netlify/functions";
+
 const ghlLoc = (l) => l.ghl_location_id || GHL_LOCATION_FALLBACK;
 // Opens the lead's conversation in GHL — where the setter calls / texts them.
 const ghlChat = (l) => (ghlLoc(l) && l.ghl_contact_id)
   ? `https://app.gohighlevel.com/v2/location/${ghlLoc(l)}/conversations/conversations/${l.ghl_contact_id}` : null;
-const telLink = (p) => { const d = String(p || "").replace(/[^\d+]/g, ""); return d ? `tel:${d}` : null; };
+// The setter calls from inside GHL, so "call now" opens the contact's chat.
 
 /* ---------- date helpers (DST-correct) ---------- */
 const pad = (n) => String(n).padStart(2, "0");
@@ -202,6 +206,7 @@ export default function SetterHub() {
   useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 60000); return () => clearInterval(t); }, []);
 
   async function tick(lead, slotKey, status) {
+    if (slotKey === "__reload__") { load(); return; }   // booking panel finished
     const calls = { ...(lead.setter_calls || {}) };
     if (calls[slotKey] === status) delete calls[slotKey]; else calls[slotKey] = status;
     const patch = { setter_calls: calls };
@@ -419,7 +424,7 @@ export default function SetterHub() {
 /* ---------- pot card: expand for detail, tick the call ---------- */
 function PotCard({ l, s, now, onTick, conf, setStage, onDelete }) {
   const chat = ghlChat(l);
-  const tel = telLink(l.phone);
+  const [booking, setBooking] = useState(false);
   return (
     <details style={{ background: C.panel, border: `1px solid ${s.fresh ? C.green + "88" : C.amber + "44"}`, borderRadius: 12 }}>
       <summary style={{ listStyle: "none", cursor: "pointer", padding: "12px 15px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -442,9 +447,9 @@ function PotCard({ l, s, now, onTick, conf, setStage, onDelete }) {
           {l.company && <><span style={{ color: C.dim }}>Company</span><span>{l.company}</span></>}
         </div>
         <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
-          {chat && <a href={chat} target="_blank" rel="noreferrer" style={linkBtn}>💬 Open chat in GHL ↗</a>}
-          {tel && <a href={tel} style={linkBtn}>📞 Call {l.phone}</a>}
-          {!chat && <span style={{ fontSize: 11, color: C.faint }}>no GHL contact linked</span>}
+          {chat
+            ? <a href={chat} target="_blank" rel="noreferrer" style={callBtn}>📞 Call now — open chat in GHL ↗</a>
+            : <span style={{ fontSize: 11, color: C.faint }}>no GHL contact linked — add the contact ID to enable the call link</span>}
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
           <button style={btn(C.green)} onClick={() => onTick(l, s.key, "picked_up")}>✓ Called — picked up</button>
@@ -455,16 +460,89 @@ function PotCard({ l, s, now, onTick, conf, setStage, onDelete }) {
               <button style={btn(C.red)} onClick={() => setStage(l, "Needs Reschedule")}>Needs reschedule</button>
             </>
           )}
+          {!conf && <button style={btn(C.violet)} onClick={() => setBooking((v) => !v)}>{booking ? "Close calendar" : "📅 Book appointment"}</button>}
           {onDelete && <button style={{ ...btn(C.red), marginLeft: "auto" }} title="Delete lead" onClick={() => onDelete(l)}>✕ Delete</button>}
         </div>
+        {booking && <BookPanel lead={l} onDone={() => { setBooking(false); if (onTick) onTick(l, "__reload__", null); }} />}
       </div>
     </details>
   );
 }
 
+/* Inline booking: 5 days of the B2B calendar's real availability, times in the
+   LEAD's local timezone. One click on a slot -> confirm -> the appointment is
+   created in GHL (its own confirmations fire) and the lead flips to
+   Booked (Unconfirmed) with appt_at set, arming the confirmation reminders. */
+function BookPanel({ lead, onDone }) {
+  const [day, setDay] = useState(0);
+  const [slots, setSlots] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const iana = TZ_IANA[lead.timezone] || "America/New_York";
+
+  const dayDate = (offset) => { const d = new Date(); d.setDate(d.getDate() + offset); return d; };
+  const fmtSlot = (iso) => new Date(iso).toLocaleTimeString("en-US", { timeZone: iana, hour: "numeric", minute: "2-digit" });
+
+  async function loadSlots(offset) {
+    setDay(offset); setSlots(null); setMsg("");
+    const target = dayDate(offset); target.setHours(0, 0, 0, 0);
+    const end = new Date(target); end.setHours(23, 59, 59, 999);
+    try {
+      const r = await fetch(`${API_BASE}/b2b-slots`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ startMs: target.getTime(), endMs: end.getTime(), timezone: iana }),
+      });
+      const data = await r.json();
+      if (data.error) { setMsg(data.error); setSlots([]); return; }
+      setSlots(data.slots || []);
+    } catch (e) { setMsg("Could not load availability."); setSlots([]); }
+  }
+  useEffect(() => { loadSlots(0); }, []);
+
+  async function book(iso) {
+    const when = new Date(iso).toLocaleString("en-US", { timeZone: iana, weekday: "long", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    if (!window.confirm(`Book ${lead.full_name || "this lead"} for:\n\n${when} (${lead.timezone || "ET"} — lead's local time)\n\nClick OK to confirm.`)) return;
+    setBusy(true); setMsg("");
+    try {
+      const r = await fetch(`${API_BASE}/b2b-book`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lead_id: lead.id, slot: iso, timezone: iana }),
+      });
+      const data = await r.json();
+      if (data.booked) { setMsg(`Booked ✓ ${data.appt_at.replace("T", " ")} ${data.timezone || ""}`); setTimeout(onDone, 900); }
+      else if (data.error === "slot_taken") { setMsg("That time was just taken — pick another."); loadSlots(day); }
+      else setMsg(data.error || "Booking failed.");
+    } catch (e) { setMsg("Booking failed."); }
+    setBusy(false);
+  }
+
+  return (
+    <div style={{ marginTop: 12, background: C.panel2, border: `1px solid ${C.violet}44`, borderRadius: 10, padding: 12 }}>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+        {[0, 1, 2, 3, 4].map((i) => (
+          <button key={i} onClick={() => loadSlots(i)} style={{
+            ...btn(day === i ? C.violet : C.faint),
+            background: day === i ? C.violet : "transparent", color: day === i ? "#0f1115" : C.dim,
+          }}>{dayDate(i).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</button>
+        ))}
+        <span style={{ fontSize: 11, color: C.faint, marginLeft: 6 }}>times in {lead.timezone || "ET"} (lead local)</span>
+      </div>
+      {slots === null ? <span style={{ color: C.dim, fontSize: 12 }}>Loading availability…</span> : (
+        slots.length === 0 && !msg
+          ? <span style={{ color: C.faint, fontSize: 12 }}>No times available this day.</span>
+          : <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+              {slots.map((iso) => (
+                <button key={iso} disabled={busy} style={btn(C.green)} onClick={() => book(iso)}>{fmtSlot(iso)}</button>
+              ))}
+            </div>
+      )}
+      {msg && <div style={{ marginTop: 8, fontSize: 12, color: msg.includes("✓") ? C.green : C.red }}>{msg}</div>}
+    </div>
+  );
+}
+
 function PriorCard({ l, m, setStage }) {
   const chat = ghlChat(l);
-  const tel = telLink(l.phone);
   return (
     <div style={{ background: C.panel, border: `1px solid ${C.red}66`, borderRadius: 12, padding: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
@@ -479,8 +557,7 @@ function PriorCard({ l, m, setStage }) {
         </div>
       </div>
       <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
-        {chat && <a href={chat} target="_blank" rel="noreferrer" style={linkBtn}>💬 Open chat in GHL ↗</a>}
-        {tel && <a href={tel} style={linkBtn}>📞 Call {l.phone}</a>}
+        {chat && <a href={chat} target="_blank" rel="noreferrer" style={callBtn}>📞 Call now — open chat in GHL ↗</a>}
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
         <button style={btn(C.accent)} onClick={() => setStage(l, "Show + No Close")}>Showed</button>
@@ -555,6 +632,7 @@ const btn = (tone) => ({
   padding: "7px 12px", borderRadius: 8, fontSize: 12.5, fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
   background: "transparent", color: tone, border: `1px solid ${tone}66`,
 });
+const callBtn = { display: "inline-block", padding: "7px 14px", borderRadius: 8, border: "none", background: C.green, color: "#0f1115", fontSize: 12.5, fontWeight: 700, fontFamily: "inherit", textDecoration: "none", cursor: "pointer", whiteSpace: "nowrap" };
 const linkBtn = { display: "inline-block", padding: "5px 10px", borderRadius: 7, border: `1px solid ${C.accent}55`, background: "transparent", color: C.accent, fontSize: 12, fontFamily: "inherit", textDecoration: "none", cursor: "pointer", whiteSpace: "nowrap" };
 const inp = { marginTop: 4, padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 13, fontFamily: "inherit", boxSizing: "border-box" };
 const sel = { padding: "6px 8px", borderRadius: 7, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12.5, fontFamily: "inherit" };
