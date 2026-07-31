@@ -188,7 +188,7 @@ export default function SetterHub() {
   const [q, setQ] = useState("");
   const [section, setSection] = useState("optins");
   const [showAdd, setShowAdd] = useState(false);
-  const [draft, setDraft] = useState({ full_name: "", phone: "", email: "", company: "", timezone: "ET", stage: "Opt-In", appt_at: "" });
+  const [draft, setDraft] = useState({ full_name: "", phone: "", email: "", timezone: "ET", stage: "Opt-In", appt_at: "" });
   const [, setTick] = useState(0);
   const now = Date.now();
 
@@ -219,7 +219,6 @@ export default function SetterHub() {
       full_name: draft.full_name || null,
       phone: draft.phone || null,
       email: draft.email || null,
-      company: draft.company || null,
       timezone: draft.timezone || null,
       stage: draft.stage,
       opt_in_at: new Date().toISOString(),
@@ -231,7 +230,7 @@ export default function SetterHub() {
     }
     const { error } = await supabase.from("b2b_leads").insert(row);
     if (error) { window.alert("Could not add lead: " + error.message); return; }
-    setDraft({ full_name: "", phone: "", email: "", company: "", timezone: "ET", stage: "Opt-In", appt_at: "" });
+    setDraft({ full_name: "", phone: "", email: "", timezone: "ET", stage: "Opt-In", appt_at: "" });
     setShowAdd(false);
     load();
   }
@@ -313,7 +312,6 @@ export default function SetterHub() {
           <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Add a lead manually</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <input placeholder="Full name" value={draft.full_name} onChange={(e) => setDraft({ ...draft, full_name: e.target.value })} style={{ ...inp, marginTop: 0 }} />
-            <input placeholder="Company" value={draft.company} onChange={(e) => setDraft({ ...draft, company: e.target.value })} style={{ ...inp, marginTop: 0 }} />
             <input placeholder="Phone (US)" value={draft.phone} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} style={{ ...inp, marginTop: 0 }} />
             <input placeholder="Email" value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} style={{ ...inp, marginTop: 0 }} />
             <select value={draft.timezone} onChange={(e) => setDraft({ ...draft, timezone: e.target.value })} style={{ ...inp, marginTop: 0 }}>
