@@ -1,10 +1,9 @@
 // src/App.jsx
-// Setter app shell: a home screen with three tiles, and simple navigation
-// (no router needed) between B2B Leads, Commissions, and Training Material.
+// Setter app shell: a home screen with two tiles, and simple navigation
+// (no router needed) between B2B Leads and Training Material.
 
 import { useState } from "react";
 import SetterHub from "./SetterHub";     // B2B Leads (calling + tracking)
-import Commissions from "./Commissions";
 import Training from "./Training";
 
 const C = {
@@ -15,7 +14,6 @@ const C = {
 
 const TILES = [
   { id: "leads", title: "B2B Leads", desc: "Your call queue, leads, and stages", icon: "📞", tone: C.accent },
-  { id: "commissions", title: "Commissions", desc: "Your deal commissions & earnings", icon: "💰", tone: C.green },
   { id: "training", title: "Training Material", desc: "Scripts and resources", icon: "📚", tone: C.violet },
 ];
 
@@ -30,7 +28,6 @@ export default function App() {
         <>
           <button onClick={() => setPage("home")} style={backBtn}>← Home</button>
           {page === "leads" && <SetterHub />}
-          {page === "commissions" && <Commissions />}
           {page === "training" && <Training />}
         </>
       )}
