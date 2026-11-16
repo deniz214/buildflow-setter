@@ -1,66 +1,36 @@
-// src/App.jsx
-// Setter app shell: a home screen with two tiles, and simple navigation
-// (no router needed) between B2B Leads and Training Material.
+// Flow: password -> pick B2B or B2C -> the desk.
 
 import { useState } from "react";
-import SetterHub from "./SetterHub";     // B2B Leads (calling + tracking)
-import Training from "./Training";
+import { AnimatePresence } from "motion/react";
+import { StoreProvider } from "./lib/store";
+import { Burst, Toasts } from "./components/bits";
+import Lock from "./screens/Lock";
+import Choose from "./screens/Choose";
+import Shell from "./screens/Shell";
 
-const C = {
-  bg: "#0f1115", panel: "#171a21", panel2: "#1d212b", border: "#262b36",
-  text: "#e7e9ee", dim: "#8b909e", faint: "#5b606e",
-  accent: "#5b8def", green: "#3ecf8e", amber: "#e9b949", violet: "#a78bfa",
-};
-
-const TILES = [
-  { id: "leads", title: "B2B Leads", desc: "Your call queue, leads, and stages", icon: "📞", tone: C.accent },
-  { id: "training", title: "Training Material", desc: "Scripts and resources", icon: "📚", tone: C.violet },
-];
+const KEY = "savant_setter_unlocked";
+const read = () => { try { return sessionStorage.getItem(KEY) === "1"; } catch { return false; } };
+const write = (v) => { try { v ? sessionStorage.setItem(KEY, "1") : sessionStorage.removeItem(KEY); } catch { /* private mode */ } };
 
 export default function App() {
-  const [page, setPage] = useState("home");
+  const [unlocked, setUnlocked] = useState(read);
+  const [ws, setWs] = useState(null);
+
+  const lock = () => { write(false); setUnlocked(false); setWs(null); };
 
   return (
-    <div>
-      {page === "home" ? (
-        <Home onPick={setPage} />
-      ) : (
-        <>
-          <button onClick={() => setPage("home")} style={backBtn}>← Home</button>
-          {page === "leads" && <SetterHub />}
-          {page === "training" && <Training />}
-        </>
-      )}
-    </div>
+    <StoreProvider>
+      <AnimatePresence mode="wait">
+        {!unlocked ? (
+          <Lock key="lock" onUnlock={() => { write(true); setUnlocked(true); }} />
+        ) : !ws ? (
+          <Choose key="choose" onPick={setWs} onLock={lock} />
+        ) : (
+          <Shell key="shell" ws={ws} onSwitch={setWs} onLock={lock} />
+        )}
+      </AnimatePresence>
+      <Toasts />
+      <Burst />
+    </StoreProvider>
   );
 }
-
-function Home({ onPick }) {
-  return (
-    <div>
-      <h1 style={{ fontSize: 28, fontWeight: 700, margin: "8px 0 4px" }}>BuildFlow · Setter</h1>
-      <p style={{ color: C.dim, margin: "0 0 26px", fontSize: 15 }}>Pick where you want to go.</p>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
-        {TILES.map((t) => (
-          <button key={t.id} onClick={() => onPick(t.id)} style={tile(t.tone)}>
-            <div style={{ fontSize: 34 }}>{t.icon}</div>
-            <div style={{ fontSize: 19, fontWeight: 700, marginTop: 12 }}>{t.title}</div>
-            <div style={{ fontSize: 13.5, color: C.dim, marginTop: 6 }}>{t.desc}</div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-const tile = (tone) => ({
-  textAlign: "left", cursor: "pointer", fontFamily: "inherit",
-  background: C.panel, border: `1px solid ${C.border}`, borderLeft: `3px solid ${tone}`,
-  borderRadius: 16, padding: "26px 22px", color: C.text, minHeight: 150,
-  display: "flex", flexDirection: "column", justifyContent: "flex-start",
-  transition: "transform 0.08s ease, border-color 0.15s ease",
-});
-const backBtn = {
-  marginBottom: 18, padding: "8px 14px", borderRadius: 8, border: `1px solid ${C.border}`,
-  background: C.panel2, color: C.text, fontSize: 14, fontFamily: "inherit", cursor: "pointer",
-};
