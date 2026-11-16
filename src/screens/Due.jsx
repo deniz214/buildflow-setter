@@ -23,7 +23,7 @@ const zoneRank = (z) => { const i = ZONE_ORDER.indexOf(z); return i < 0 ? 99 : i
 const GROUP_CAP = 50;
 
 export default function Due({ ws, openLead, clientId, goClients }) {
-  const { forWs, now, actions, clients: clientRows } = useStore();
+  const { forWs, now, actions, clients: clientRows, b2cBackend, b2cError } = useStore();
   const mine = (l) => !clientId || (l.clientId || l.client) === clientId;
   const leads = forWs(ws).filter(mine);
   const pots = POTS[ws];
@@ -68,9 +68,9 @@ export default function Due({ ws, openLead, clientId, goClients }) {
     return (
       <div className="empty empty-lg">
         <span className="empty-tick is-plain"><Building2 size={22} /></span>
-        <strong>No clients on the B2C desk yet.</strong>
-        <p>Onboard a client and connect their GoHighLevel. Their opt-ins and bookings will show up here, ready to call.</p>
-        <button className="btn btn-ink" onClick={goClients}>Onboard a client</button>
+        <strong>{b2cBackend === "missing" ? "Homeowner leads aren't loading." : "No clients yet."}</strong>
+        <p>{b2cBackend === "missing" ? (b2cError || "The desk couldn't reach the onboarding hub.") : "Clients come from the onboarding hub. Onboard a deck client on the Clients page; their opt-ins and bookings show up here, ready to call."}</p>
+        <button className="btn btn-ink" onClick={goClients}>Go to Clients</button>
       </div>
     );
   }

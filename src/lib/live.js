@@ -11,6 +11,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { STAGES } from "./stages";
 import { wallParts, zonedToUTC } from "./time";
+import { deskFn } from "./token";
 
 const URL_ = import.meta.env.VITE_SUPABASE_URL;
 const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -119,43 +120,61 @@ export const wallString = (date, tz) => {
   return `${p.y}-${pad(p.m)}-${pad(p.d)}T${pad(p.hh)}:${pad(p.mm)}`;
 };
 
-/* ───────── B2C: clients and their leads ─────────
-   Tables desk_clients / desk_leads are created by server/desk_schema.sql and
-   filled by the desk-webhook function. Until that SQL has been run, clients are
-   kept in this browser only so the onboarding flow can still be tried. */
+/* ───────── B2C: homeowner leads from the onboarding hub ─────────
+   Every company added in the hub (or on the desk's Clients page) shows up here
+   on its own. Reads and writes go through this site's "homeowners" function,
+   which holds the hub's dialer key, so no key is in the page. Calls, stages and
+   notes land on the same lead row the hub's tracker, metrics and Slack
+   reminders read, and the call schedule is the hub's own (callState), so a call
+   ticked here silences the matching Slack reminder. */
 
-const LOCAL_CLIENTS = "savant_desk_clients_local";
-const readLocal = () => { try { return JSON.parse(localStorage.getItem(LOCAL_CLIENTS) || "[]"); } catch { return []; } };
-const writeLocal = (v) => { try { localStorage.setItem(LOCAL_CLIENTS, JSON.stringify(v)); } catch { /* private mode */ } };
-const randomKey = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, "0")).join("");
-const toClient = (r, local = false) => ({ id: r.id, name: r.name, timezone: r.timezone || "ET", key: r.webhook_key, ghlLocation: r.ghl_location_id || "", createdAt: r.created_at, local });
+const HUB_TO_DESK = {
+  opt_in: "optin", booked_unconfirmed: "unconfirmed", booked_confirmed: "confirmed", reschedule_needed: "reschedule",
+  no_show: "noshow", show_fup: "show_fup", show_close: "show_close", cancelled: "cancelled", dnd: "bad", fake_lead: "bad",
+};
+const DESK_TO_HUB = {
+  optin: "opt_in", unconfirmed: "booked_unconfirmed", confirmed: "booked_confirmed", reschedule: "reschedule_needed",
+  noshow: "no_show", show_fup: "show_fup", show_close: "show_close", cancelled: "cancelled", bad: "fake_lead",
+};
+export const HUB_STAGES = Object.keys(DESK_TO_HUB);
 
-export const webhookUrl = (client) => `${FN}/desk-webhook?client=${client.key}`;
+function hubLead(r) {
+  const stage = HUB_TO_DESK[r.stage] || "bad";
+  const open = r.booking && ["unconfirmed", "confirmed"].includes(stage);
+  return {
+    id: r.id, ws: "b2c", live: true, table: "hub",
+    client: r.client, clientId: r.client_id, trade: r.trade || "remodeling",
+    name: String(r.name || "").trim() && r.name !== "—" ? r.name : "Unnamed lead", company: "", niche: r.trade === "decks" ? "Decks" : "Remodeling",
+    phone: String(r.phone_digits || "").replace(/\D/g, "").slice(-10), email: r.email || "", zip: r.zip || "",
+    project: r.property_type || "", property: r.ownership || "", ad: r.ad_name || "",
+    tz: r.tz || "America/New_York", tzKnown: !!r.tz,
+    stage, rawStage: r.stage,
+    optInAt: r.created_at, bookedAt: r.booked_at || "", stageChangedAt: "",
+    stageAt: (stage === "optin" ? r.created_at : r.booked_at) || r.created_at,
+    apptAt: open ? r.booking.start_time : null, apptWall: null,
+    calls: r.setter_calls || {}, notesText: r.notes || "",
+    ghlUrl: r.ghl_link || null, bookUrl: r.book_link || "",
+    hubCall: r.call || {},
+    rescheduled: 0, notes: [], timeline: [],
+  };
+}
 
 export async function fetchB2C() {
-  const cl = await supabase.from("desk_clients").select("*").eq("active", true).order("created_at");
-  if (cl.error) return { ready: false, clients: readLocal().map((r) => toClient(r, true)), leads: [] };
-  const clients = cl.data.map((r) => toClient(r));
-  const byId = Object.fromEntries(clients.map((c) => [c.id, c]));
-  const ld = await supabase.from("desk_leads").select("*").order("opt_in_at", { ascending: false }).limit(2000);
-  if (ld.error) throw new Error(ld.error.message);
-  return { ready: true, clients, leads: ld.data.filter((r) => byId[r.client_id]).map((r) => toLead(r, "b2c", byId[r.client_id])) };
-}
-
-export async function createClientRow(draft, ready) {
-  const row = { name: draft.name.trim(), timezone: draft.timezone, ghl_location_id: draft.ghlLocation.trim() || null };
-  if (!ready) {
-    const r = { ...row, id: `local-${randomKey()}`, webhook_key: randomKey(), created_at: new Date().toISOString() };
-    writeLocal([...readLocal(), r]);
-    return toClient(r, true);
+  try {
+    const d = await deskFn("homeowners");
+    const clients = (d.clients || []).map((c) => ({ id: c.id, name: c.name, trade: c.trade || "remodeling", tz: c.tz || "" }));
+    return { ready: true, clients, leads: (d.leads || []).map(hubLead) };
+  } catch (e) {
+    return { ready: false, clients: [], leads: [], error: e.message };
   }
-  const { data, error } = await supabase.from("desk_clients").insert(row).select().single();
-  if (error) throw new Error(error.message);
-  return toClient(data);
 }
 
-export async function deleteClientRow(client, ready) {
-  if (client.local || !ready) return writeLocal(readLocal().filter((r) => r.id !== client.id));
-  const { error } = await supabase.from("desk_clients").update({ active: false }).eq("id", client.id);
-  if (error) throw new Error(error.message);
-}
+const hubPost = (body) => deskFn("homeowners", body);
+export const hubSaveCall = (lead, key, outcome) => hubPost({ action: "call", lead_id: lead.id, key, outcome });
+export const hubSaveStage = (lead, stage) => hubPost({ action: "stage", lead_id: lead.id, stage: DESK_TO_HUB[stage] });
+export const hubSaveNotes = (lead, text) => hubPost({ action: "notes", lead_id: lead.id, notes: text });
+
+/* ───────── Clients (onboarding hub) ───────── */
+export const fetchHubClients = () => deskFn("hub-admin").then((d) => d.clients || []);
+export const saveHubClient = (client, isNew) => deskFn("hub-admin", { action: "save", client, isNew });
+export const uploadLogo = (clientId, dataUrl) => deskFn("hub-admin", { action: "logo", client_id: clientId, data_url: dataUrl }).then((d) => d.url);

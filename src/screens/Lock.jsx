@@ -7,6 +7,7 @@ import { useRef, useState } from "react";
 import { motion, useAnimate } from "motion/react";
 import { ArrowRight, Eye, EyeOff, Lock as LockIcon } from "lucide-react";
 import { Logo } from "../components/bits";
+import { saveToken } from "../lib/token";
 
 // On your own machine (localhost) there is no server function, so "setter" works there only.
 const LOCAL = typeof location !== "undefined" && ["localhost", "127.0.0.1"].includes(location.hostname);
@@ -17,7 +18,7 @@ async function check(pw) {
   try {
     const r = await fetch("/.netlify/functions/desk-login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: pw }) });
     const d = await r.json().catch(() => null);          // only a real answer from the function counts
-    if (d && d.ok === true && r.status === 200) return "ok";
+    if (d && d.ok === true && r.status === 200) { saveToken(d.token || ""); return "ok"; }
     if (d && d.ok === false && r.status === 401) return "wrong";
     return LOCAL && !d ? local() : "down";
   } catch { return LOCAL ? local() : "down"; }

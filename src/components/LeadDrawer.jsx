@@ -103,8 +103,13 @@ export default function LeadDrawer({ lead: l, focus, onClose }) {
 
           <div ref={bookRef}>
             <Section title={l.apptAt ? "Rebook" : "Book appointment"} icon={<CalendarPlus size={15} />}>
-              {l.ws === "b2c" && l.live
-                ? <p className="muted">Booking from the desk for B2C clients comes with each client's calendar connection. For now, book in GoHighLevel and it will show up here.</p>
+              {l.table === "hub"
+                ? <div className="hub-book">
+                    <p className="muted">{l.trade === "decks"
+                      ? `Opens ${l.client}'s GHL calendar with ${l.name.split(" ")[0]}'s details filled in. Book it there; their GHL booking workflow runs as usual. Then set the stage here.`
+                      : `Opens ${l.client}'s booking page with ${l.name.split(" ")[0]}'s details filled in. The booking lands on this desk by itself.`}</p>
+                    <a className="btn btn-ink" href={l.bookUrl} target="_blank" rel="noopener" aria-disabled={!l.bookUrl}><ExternalLink size={15} /> Open booking page</a>
+                  </div>
                 : <Booker lead={l} now={now} onBook={(at) => actions.book(l, at)} />}
             </Section>
           </div>

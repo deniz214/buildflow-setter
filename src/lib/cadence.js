@@ -45,9 +45,10 @@ export const POTS = {
     { id: "rebook", stage: "noshow", label: "Rebook", blurb: "No-shows and reschedules", rule: "9 AM · 1 PM · 4 PM for 7 days, then 12 PM daily, until they are rebooked" },
   ],
   b2c: [
-    { id: "optins", stage: "optin", label: "Opt-ins", blurb: "Opted in, not booked yet", rule: "9 AM · 1 PM · 4 PM for 7 days, then 12 PM daily" },
-    { id: "unconfirmed", stage: "unconfirmed", label: "Unconfirmed", blurb: "Booked, not confirmed yet", rule: "9 AM · 1 PM · 4 PM until they confirm" },
-    { id: "prior", stage: "confirmed", label: "1 hour prior", blurb: "Confirmed, estimate starts soon", rule: "One call 1 hour before" },
+    { id: "optins", stage: "optin", label: "Opt-ins", blurb: "Opted in, not booked yet", rule: "Call now, then 9 AM · 1 PM · 5 PM days 1-3, 9 AM · 3 PM days 4-6, then 12 PM daily" },
+    { id: "unconfirmed", stage: "unconfirmed", label: "Unconfirmed", blurb: "Booked, not confirmed yet", rule: "Same rhythm from the booking day until the estimate" },
+    { id: "prior", stage: "confirmed", label: "30 min prior", blurb: "Estimate starts soon", rule: "One call 30 minutes before" },
+    { id: "rebook", stage: "noshow", label: "Rebook", blurb: "No-shows, reschedules, cancellations", rule: "12 PM every day until they are rebooked" },
   ],
 };
 
@@ -103,7 +104,20 @@ export function slotsFor(lead, now, horizon = 3 * DAY) {
 // One call per slot: has this slot been dealt with?
 const logged = (lead, key) => (lead.calls || {})[key];
 
+// Homeowner leads from the hub: the hub works out what is due (same rules as its Slack reminders).
+const HUB_REBOOK = ["noshow", "reschedule", "cancelled"];
+function hubStatus(lead, now) {
+  const c = lead.hubCall || {};
+  const base = { pot: null, due: false, current: null, next: null, needsUpdate: c.kind === "past", slots: [], today: [], reached: c.kind === "reached", day: 1, overdueMin: 0 };
+  if (!c.pot || !c.key) return base;
+  const pot = c.pot === "conf" ? "unconfirmed" : c.pot === "prior" ? "prior" : HUB_REBOOK.includes(lead.stage) ? "rebook" : "optins";
+  const at = c.due ? new Date(c.due) : new Date(c.kind === "fresh" ? lead.stageAt || lead.optInAt : now);
+  const label = c.kind === "fresh" ? (pot === "unconfirmed" ? "New booking · confirm it" : "New opt-in · call now") : c.stage || "Call due";
+  return { ...base, pot, due: true, current: { key: c.key, at, label, kind: c.kind === "fresh" ? "new" : "slot" }, overdueMin: Math.max(0, Math.round((now - at) / MIN)) };
+}
+
 export function statusOf(lead, now) {
+  if (lead.table === "hub") return hubStatus(lead, now);
   const pot = potFor(lead);
   const cfg = CADENCE[lead.ws];
   const appt = lead.apptAt ? new Date(lead.apptAt) : null;

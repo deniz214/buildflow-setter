@@ -26,4 +26,5 @@ export const NEEDS_UPDATE = { id: "needs_update", label: "Needs update", long: "
 export const BOARD = ["optin", "unconfirmed", "confirmed", "needs_update", "reschedule", "noshow", "show_fup", "show_close", "show_noclose", "cancelled", "bad"];
 
 // B2C only works the front of the pipeline for now.
-export const B2C_STAGES = ["optin", "unconfirmed", "confirmed"];
+// Homeowner stages the hub tracks (no "Show + no close" there).
+export const B2C_STAGES = ["optin", "unconfirmed", "confirmed", "reschedule", "noshow", "show_fup", "show_close", "cancelled", "bad"];

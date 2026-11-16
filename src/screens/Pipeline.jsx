@@ -10,7 +10,7 @@ import { BOARD, NEEDS_UPDATE, STAGE } from "../lib/stages";
 import { useStore } from "../lib/store";
 import { fmtWhen } from "../lib/time";
 
-const B2C_BOARD = ["optin", "unconfirmed", "confirmed", "needs_update"];
+const B2C_BOARD = ["optin", "unconfirmed", "confirmed", "needs_update", "reschedule", "noshow", "show_fup", "show_close", "cancelled", "bad"];
 const CAP = 40;
 
 export default function Pipeline({ ws, openLead, clientId }) {

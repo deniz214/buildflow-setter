@@ -693,3 +693,30 @@ a.pill-sample:hover { color: var(--ink); border-color: var(--ink); }
 .lesson svg { flex: none; color: var(--muted); }
 .lesson-go { opacity: 0; transition: opacity .12s; }
 .lesson:hover .lesson-go { opacity: 1; }
+
+/* ── Clients: deck onboarding ── */
+.clients-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.clients-head .seg button .muted { font-weight: 400; margin-left: 2px; }
+.deck-form .client-form-in { grid-template-columns: 1fr 1fr; gap: 12px 14px; }
+.deck-form-head { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; }
+.deck-form-head b { font-size: 17px; font-weight: 600; }
+.deck-form h5 { grid-column: 1 / -1; margin: 8px 0 -2px; font: 500 11.5px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.deck-form input:disabled { color: var(--muted); background: var(--paper-2); }
+.deck-form textarea { padding: 10px 13px; border-radius: 12px; border: 1px solid var(--line); background: var(--paper); outline: 0; color: var(--ink); font: inherit; resize: vertical; }
+.deck-form textarea:focus { border-color: var(--ink); background: var(--card); }
+.deck-form .wide, .deck-form .check { grid-column: 1 / -1; }
+.deck-form label.check { flex-direction: row; align-items: flex-start; gap: 10px; color: var(--ink-2); font-size: 14px; }
+.deck-form label.check input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--ink); }
+.deck-form label.check em { display: block; }
+.logo-pick { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.logo-pick label.btn { flex-direction: row; align-items: center; color: var(--ink-2); font-size: 14px; cursor: pointer; }
+.logo-prev { display: grid; place-items: center; min-width: 120px; height: 52px; padding: 4px 10px; border-radius: 12px; border: 1px dashed var(--line); background: var(--paper); }
+.logo-prev img { max-height: 44px; max-width: 160px; object-fit: contain; }
+.logo-prev i { font-size: 12px; color: var(--faint); font-style: normal; }
+.adv summary { cursor: pointer; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+.form-err { color: var(--red); font-size: 13.5px; margin: 0; }
+.client-acts { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 6px; }
+.client-facts { margin-top: 10px; }
+.client-steps { margin: 0 0 10px 18px; padding: 0; display: grid; gap: 6px; font-size: 13.5px; color: var(--ink-2); }
+.small { font-size: 12.5px; }
+@media (max-width: 820px) { .deck-form .client-form-in { grid-template-columns: 1fr; } }

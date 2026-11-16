@@ -1,5 +1,6 @@
 // After the password: pick the side you're working on.
 
+import { useEffect } from "react";
 import { motion } from "motion/react";
 import { ArrowUpRight, LogOut } from "lucide-react";
 import { CountUp, Logo } from "../components/bits";
@@ -22,7 +23,9 @@ const SIDES = [
 ];
 
 export default function Choose({ onPick, onLock }) {
-  const { forWs, clients: clientRows } = useStore();
+  const { forWs, clients: clientRows, actions } = useStore();
+  // Homeowner data needs the login pass, so load again right after unlocking.
+  useEffect(() => { actions.reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <motion.div className="choose" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>

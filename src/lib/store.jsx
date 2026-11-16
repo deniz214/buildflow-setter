@@ -21,7 +21,7 @@ export const MODE = LIVE ? "live" : EMPTY ? "empty" : "demo";
 
 // Desks that are switched on for real use. The others show as "Coming soon"
 // in live mode and are fully open in ?demo.
-export const LIVE_DESKS = ["b2b"];
+export const LIVE_DESKS = ["b2b", "b2c"];
 export const deskOpen = (ws) => MODE !== "live" || LIVE_DESKS.includes(ws);
 
 // Which B2B leads the desk starts with: opted in since Monday 9 Nov 2026
@@ -48,6 +48,7 @@ export function StoreProvider({ children }) {
   const smsBackend = MODE === "demo" ? "demo" : "missing";
   const [clients, setClients] = useState(() => (MODE === "demo" ? [...new Set(buildSample().map((l) => l.client).filter(Boolean))].map((n) => ({ id: n, name: n, timezone: "ET", key: "demo", local: true })) : []));
   const [b2cBackend, setB2cBackend] = useState(MODE === "live" ? "checking" : "demo"); // ready | missing | demo
+  const [b2cError, setB2cError] = useState("");
   const [loading, setLoading] = useState(MODE === "live");
   const [error, setError] = useState("");
   const [now, setNow] = useState(() => new Date());
@@ -69,6 +70,7 @@ export function StoreProvider({ children }) {
       setLeads([...b2b.filter(inScope), ...b2c.leads]);
       setClients(b2c.clients);
       setB2cBackend(b2c.ready ? "ready" : "missing");
+      setB2cError(b2c.error || "");
       setError("");
     } catch (e) {
       setError(e.message || "Couldn't load leads");
@@ -98,6 +100,14 @@ export function StoreProvider({ children }) {
     async logCall(lead, key, status) {
       if (lead.ws === "sms") return actions.markCalled(lead, key, status);
       const calls = { ...lead.calls, [key]: status };
+      if (lead.table === "hub") {
+        patch(lead.id, (l) => ({ ...l, calls, hubCall: { pot: null, kind: "logged", stage: "Call logged" }, timeline: [...l.timeline, { at: stamp(), type: "call", text: status === "picked_up" ? "Called, picked up" : "Called, no answer" }] }));
+        setTally((t) => ({ ...t, calls: t.calls + 1 }));
+        setNow(new Date());
+        if (status === "no_pickup") toast(`No answer logged for ${lead.name.split(" ")[0]}. Back in the pot at the next slot.`);
+        if (await remote(lead, () => live.hubSaveCall(lead, key, status))) reload();
+        return;
+      }
       patch(lead.id, (l) => ({ ...l, calls, timeline: [...l.timeline, { at: stamp(), type: "call", text: status === "picked_up" ? "Called, picked up" : "Called, no answer" }] }));
       setTally((t) => ({ ...t, calls: t.calls + 1 }));
       setNow(new Date());
@@ -111,6 +121,7 @@ export function StoreProvider({ children }) {
       setNow(new Date());
       toast(`${lead.name.split(" ")[0]} moved to ${STAGE[stage].label}`, stage === "show_close" || stage === "confirmed" ? "good" : "ink");
       if (stage === "show_close") setBurst((b) => b + 1);
+      if (lead.table === "hub") { if (await remote(lead, () => live.hubSaveStage(lead, stage))) reload(); return; }
       await remote(lead, () => live.saveStage(lead, stage));
     },
     async book(lead, iso) {
@@ -136,7 +147,7 @@ export function StoreProvider({ children }) {
       const line = `[${fmtWhen(new Date(), "America/New_York")} ET] ${text}`;
       const notesText = lead.notesText ? `${line}\n${lead.notesText}` : line;
       patch(lead.id, (l) => ({ ...l, notesText }));
-      if (await remote(lead, () => live.saveNotes(lead, notesText))) toast("Note saved");
+      if (await remote(lead, () => (lead.table === "hub" ? live.hubSaveNotes(lead, notesText) : live.saveNotes(lead, notesText)))) toast("Note saved");
     },
     /* ── SMS desk (placeholder conversations only until the GoHighLevel connection is live) ── */
     sendText(lead, text) {
@@ -155,31 +166,18 @@ export function StoreProvider({ children }) {
       setNow(new Date());
       toast(status === "picked_up" ? `Logged: spoke to ${lead.name}` : `No answer logged for ${lead.name}`);
     },
-    async addClient(draft) {
-      try {
-        const c = await live.createClientRow(draft, b2cBackend === "ready");
-        setClients((cs) => [...cs, c]);
-        toast(`${c.name} added`, "good");
-        return c;
-      } catch (e) { toast(`Not saved: ${e.message}`, "bad"); return null; }
-    },
-    async removeClient(c) {
-      try {
-        await live.deleteClientRow(c, b2cBackend === "ready");
-        setClients((cs) => cs.filter((x) => x.id !== c.id));
-      } catch (e) { toast(`Not removed: ${e.message}`, "bad"); }
-    },
+
   }; return actions; }, [toast, reload, remote, b2cBackend]);
 
   // Work out every lead's call status once per tick.
   const withStatus = useMemo(() => leads.map((l) => ({ ...l, status: statusOf(l, now) })), [leads, now]);
 
   const value = useMemo(() => ({
-    leads: withStatus, clients, now, toasts, burst, actions, loading, error, b2cBackend, smsBackend,
+    leads: withStatus, clients, now, toasts, burst, actions, loading, error, b2cBackend, b2cError, smsBackend,
     callsToday: tally.calls, bookedToday: tally.booked,
     forWs: (ws) => withStatus.filter((l) => l.ws === ws),
     dueCount: (ws) => withStatus.filter((l) => l.ws === ws && l.status.due).length,
-  }), [withStatus, clients, now, toasts, burst, actions, loading, error, b2cBackend, tally]);
+  }), [withStatus, clients, now, toasts, burst, actions, loading, error, b2cBackend, b2cError, tally]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

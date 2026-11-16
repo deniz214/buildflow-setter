@@ -7,10 +7,11 @@ import { Burst, Toasts } from "./components/bits";
 import Lock from "./screens/Lock";
 import Choose from "./screens/Choose";
 import Shell from "./screens/Shell";
+import { saveToken } from "./lib/token";
 
 const KEY = "savant_setter_unlocked";
 const read = () => { try { return sessionStorage.getItem(KEY) === "1"; } catch { return false; } };
-const write = (v) => { try { v ? sessionStorage.setItem(KEY, "1") : sessionStorage.removeItem(KEY); } catch { /* private mode */ } };
+const write = (v) => { try { v ? sessionStorage.setItem(KEY, "1") : sessionStorage.removeItem(KEY); } catch { /* private mode */ } if (!v) saveToken(""); };
 
 export default function App() {
   const [unlocked, setUnlocked] = useState(read);
